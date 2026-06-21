@@ -19,10 +19,11 @@ export default function Weight({ weighIns, profile, addWeigh }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <Card>
         <Label>Log today’s weight</Label>
+        <input type="number" inputMode="decimal" step="0.1" placeholder="Weight (lb)" value={w}
+          onChange={(e) => setW(e.target.value)} style={{ ...input, marginBottom: 8 }} />
         <div style={{ display: "flex", gap: 8 }}>
-          <input type="number" step="0.1" placeholder="lb" value={w} onChange={(e) => setW(e.target.value)} style={input} />
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={input} />
-          <button onClick={submit} style={btnPrimary}>Log</button>
+          <button onClick={submit} style={{ ...btnPrimary, width: "auto", paddingLeft: 22, paddingRight: 22 }}>Log</button>
         </div>
       </Card>
 

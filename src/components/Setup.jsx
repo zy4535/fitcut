@@ -10,17 +10,20 @@ export default function Setup({ profile, save }) {
     goalWeight: "", goalDate: "", startWeight: "", override: false,
   });
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
   const set = (k, v) => setF({ ...f, [k]: v });
   const ready = f.age && f.heightIn && f.currentWeight && f.goalWeight && f.goalDate;
   const bulk = f.mode === "bulk";
 
   const commit = async () => {
     if (!ready) return;
-    setBusy(true);
+    setBusy(true); setErr(null);
     try {
       await save({ mode: f.mode, sex: f.sex, age: +f.age, heightIn: +f.heightIn, currentWeight: +f.currentWeight,
         activity: f.activity, goalWeight: +f.goalWeight, goalDate: f.goalDate, override: !!f.override,
         startWeight: f.startWeight ? +f.startWeight : +f.currentWeight });
+    } catch (e) {
+      setErr(e?.message || "Couldn’t save — check your connection and try again.");
     } finally { setBusy(false); }
   };
 
@@ -85,6 +88,9 @@ export default function Setup({ profile, save }) {
              : <CutWarning pace={preview.requestedPaceLbWk} checked={!!f.override} onToggle={(v) => set("override", v)} />
       )}
 
+      {err && (
+        <div style={{ fontSize: 12, color: C.over, lineHeight: 1.5, padding: "0 2px" }}>{err}</div>
+      )}
       <button onClick={commit} style={{ ...btnPrimary, opacity: ready && !busy ? 1 : 0.5 }}>{busy ? "Saving…" : "Save goal"}</button>
       <button onClick={() => supabase.auth.signOut()} style={btnGhost}>Sign out</button>
     </div>
