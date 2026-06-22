@@ -49,6 +49,11 @@ export default function Today({ profile, targets, eaten, burned, proteinEaten, c
         <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
           Maintenance ≈ {targets.tdee} kcal · daily {bulk ? "surplus" : "deficit"} {targets.adjust} kcal
         </div>
+        {targets.adapted && (
+          <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>
+            Recalculated from your latest weigh-in ({targets.liveWeight} lb) to keep you on track for your date.
+          </div>
+        )}
         {targets.aggressive && (
           <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, background: "rgba(232,179,57,0.12)",
             border: "1px solid rgba(232,179,57,0.3)", fontSize: 12, color: "#F0CE7E", lineHeight: 1.5 }}>

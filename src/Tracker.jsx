@@ -36,14 +36,15 @@ export default function Tracker({ session }) {
     return () => { window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
   }, [reload]);
 
-  const targets = useMemo(() => deriveTargets(profile), [profile]);
+  const latestWeighIn = weighIns.length ? weighIns[weighIns.length - 1].weight : null;
+  const targets = useMemo(() => deriveTargets(profile, latestWeighIn), [profile, latestWeighIn]);
   const eaten = food.reduce((s, x) => s + x.kcal * x.qty, 0);
   const burned = cardio.reduce((s, x) => s + x.kcal, 0);
   const proteinEaten = food.reduce((s, x) => s + x.p * x.qty, 0);
   const carbsEaten = food.reduce((s, x) => s + x.c * x.qty, 0);
   const fatEaten = food.reduce((s, x) => s + x.f * x.qty, 0);
   const fiberEaten = food.reduce((s, x) => s + (x.fib || 0) * x.qty, 0);
-  const latestWeight = weighIns.length ? weighIns[weighIns.length - 1].weight : profile?.currentWeight ?? 160;
+  const latestWeight = latestWeighIn ?? profile?.currentWeight ?? 160;
 
   // handlers
   const onSaveProfile = async (p) => setProfile(await db.saveProfile(uid, p));

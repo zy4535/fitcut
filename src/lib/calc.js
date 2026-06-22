@@ -25,37 +25,44 @@ export function mifflin({ sex, age, heightIn, currentWeight }) {
     : 10 * kg + 6.25 * cm - 5 * age + 5;
 }
 
-export function deriveTargets(profile) {
+export function deriveTargets(profile, liveWeight) {
   if (!profile || !profile.age || !profile.heightIn || !profile.currentWeight ||
       !profile.goalWeight || !profile.goalDate) return null;
   const mode = profile.mode || "cut";
-  const bmr = mifflin(profile);
+  // Use the latest weigh-in as today's weight when available, so the budget
+  // self-corrects as you lose/gain. Falls back to the setup weight.
+  const cw = liveWeight != null ? liveWeight : profile.currentWeight;
+  const adapted = liveWeight != null && Math.round(liveWeight) !== Math.round(profile.currentWeight);
+  const bmr = mifflin({ ...profile, currentWeight: cw });
   const factor = ACTIVITY.find((a) => a.k === profile.activity)?.f ?? 1.375;
   const tdee = bmr * factor;
-  const days = Math.max(1, Math.round((new Date(profile.goalDate) - new Date()) / 86400000));
+  const days = Math.max(1, Math.round((new Date(profile.goalDate) - new Date()) / 86400000)); // target date is fixed
 
   const override = !!profile.override;       // user acknowledged the risks of a faster pace
   let lbsDelta, needed, cap, proteinTarget, sign;
   if (mode === "bulk") {
-    lbsDelta = Math.max(0, profile.goalWeight - profile.currentWeight);
+    lbsDelta = Math.max(0, profile.goalWeight - cw);
     cap = tdee * 0.2;                         // lean-bulk reference rate
     proteinTarget = Math.round(profile.goalWeight * 0.9);
     sign = 1;
   } else {
-    lbsDelta = Math.max(0, profile.currentWeight - profile.goalWeight);
+    lbsDelta = Math.max(0, cw - profile.goalWeight);
     cap = tdee * 0.25;                        // ~1–2 lb/wk reference rate
-    proteinTarget = Math.round(profile.currentWeight * 0.9);
+    proteinTarget = Math.round(cw * 0.9);
     sign = -1;
   }
-  needed = (lbsDelta * 3500) / days;          // what the goal+date actually requires
+  needed = (lbsDelta * 3500) / days;          // what hitting the goal by the fixed date now requires
   const aggressive = needed > cap;            // faster than the recommended reference rate
   // The cap is only a default. Once the user acknowledges the risks, use their full pace.
-  const adjust = aggressive && !override ? cap : needed;
+  let adjust = aggressive && !override ? cap : needed;
+  // Absolute backstop: never output a dangerous/nonsensical budget, even when acknowledged.
+  adjust = Math.min(adjust, tdee * (mode === "bulk" ? 0.5 : 0.6));
   const budget = Math.round(tdee + sign * adjust);
 
   return {
     mode, bmr: round(bmr), tdee: round(tdee), budget, adjust: round(adjust),
     proteinTarget, days, lbsDelta: r1(lbsDelta), aggressive, override,
+    liveWeight: r1(cw), adapted,
     cap: round(cap), paceLbWk: r1((adjust * 7) / 3500),
     requestedAdjust: round(needed), requestedPaceLbWk: r1((needed * 7) / 3500),
     cappedPaceLbWk: r1((cap * 7) / 3500),
