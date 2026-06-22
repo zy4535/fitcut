@@ -1,28 +1,27 @@
 import React, { useEffect, useState } from "react";
-import { X, Plus, Search } from "lucide-react";
+import { X, Plus, Search, Camera } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_MONO, Card, Stat, Mini, Toggle, input, btnPrimary, btnGhost, foodRow, iconBtn } from "./ui.jsx";
 import { round, todayStr } from "../lib/calc.js";
-import { searchFoods } from "../lib/foods.js";
+import { searchFoods, lookupBarcode } from "../lib/foods.js";
+import Scanner from "./Scanner.jsx";
 
 export default function Food({ todayFood, targets, burned, addFood, del }) {
   const [meal, setMeal] = useState("meal");
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [sel, setSel] = useState(null);        // { per100, serving }
+  const [sel, setSel] = useState(null);
   const [useServing, setUseServing] = useState(false);
   const [qty, setQty] = useState("1");
   const [custom, setCustom] = useState(false);
   const [cf, setCf] = useState({ name: "", unit: "serving", kcal: "", p: "", c: "", f: "", fib: "" });
+  const [scanning, setScanning] = useState(false);
+  const [scanMsg, setScanMsg] = useState(null);
 
-  // debounced live search against Open Food Facts
   useEffect(() => {
     if (!q.trim()) { setResults([]); return; }
     setSearching(true); setSel(null);
-    const t = setTimeout(async () => {
-      const r = await searchFoods(q);
-      setResults(r); setSearching(false);
-    }, 400);
+    const t = setTimeout(async () => { const r = await searchFoods(q); setResults(r); setSearching(false); }, 400);
     return () => clearTimeout(t);
   }, [q]);
 
@@ -32,13 +31,18 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
   const fiber = todayFood.reduce((s, x) => s + (x.fib || 0) * x.qty, 0);
   const left = targets ? targets.budget + round(burned) - round(eaten) : null;
   const bulk = targets?.mode === "bulk";
-
   const chosen = (item) => (useServing && item.serving ? item.serving : item.per100);
 
   const commit = (food, n) => {
-    addFood({ id: undefined, date: todayStr(), meal, name: food.name, unit: food.unit, qty: n,
-      kcal: food.kcal, p: food.p, c: food.c, f: food.f, fib: food.fib ?? 0 });
-    setSel(null); setQty("1"); setQ(""); setResults([]);
+    addFood({ date: todayStr(), meal, name: food.name, unit: food.unit, qty: n, kcal: food.kcal, p: food.p, c: food.c, f: food.f, fib: food.fib ?? 0 });
+    setSel(null); setQty("1"); setQ(""); setResults([]); setScanMsg(null);
+  };
+
+  const onBarcode = async (code) => {
+    setScanning(false); setScanMsg("Looking up barcode…");
+    const item = await lookupBarcode(code);
+    if (item) { setQ(item.per100.name); setResults([item]); setSel(item); setUseServing(!!item.serving); setScanMsg(null); }
+    else setScanMsg(`No product found for barcode ${code}. Try typing its name, or add it as a custom food.`);
   };
 
   const meals = todayFood.filter((x) => x.meal === "meal");
@@ -46,11 +50,12 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {scanning && <Scanner onResult={onBarcode} onClose={() => setScanning(false)} />}
+
       <Card>
         <div style={{ display: "flex", gap: 10 }}>
           <Stat label="Eaten" value={round(eaten)} unit="kcal" />
-          <Stat label={bulk ? "To go" : "Left"} value={left != null ? round(left) : "—"} unit="kcal"
-            accent={left == null ? C.text : left < 0 ? (bulk ? C.warn : C.over) : C.good} />
+          <Stat label={bulk ? "To go" : "Left"} value={left != null ? round(left) : "—"} unit="kcal" accent={left == null ? C.text : left < 0 ? (bulk ? C.warn : C.over) : C.good} />
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           <Mini label="Protein" value={round(protein)} target={targets?.proteinTarget} color={C.protein} />
@@ -61,28 +66,30 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
 
       <Toggle value={meal} onChange={setMeal} options={[["meal", "Full meal"], ["snack", "Snack"]]} />
 
-      <div style={{ position: "relative" }}>
-        <Search size={15} color={C.faint} style={{ position: "absolute", left: 12, top: 13 }} />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search any food or brand…" style={{ ...input, paddingLeft: 34 }} />
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <Search size={15} color={C.faint} style={{ position: "absolute", left: 12, top: 13 }} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search any food or brand…" style={{ ...input, paddingLeft: 34 }} />
+        </div>
+        <button onClick={() => { setScanMsg(null); setScanning(true); }} aria-label="Scan barcode"
+          style={{ width: 46, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 10, color: C.teal, cursor: "pointer" }}>
+          <Camera size={18} />
+        </button>
       </div>
+      {scanMsg && <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>{scanMsg}</div>}
 
       {!custom && q.trim() !== "" && (
         <Card pad={6}>
           {searching && <div style={{ padding: 14, fontSize: 12, color: C.muted }}>Searching…</div>}
-          {!searching && results.length === 0 && (
-            <div style={{ padding: 14, fontSize: 12, color: C.muted }}>No matches — try a different term or add it as a custom food.</div>
-          )}
+          {!searching && results.length === 0 && <div style={{ padding: 14, fontSize: 12, color: C.muted }}>No matches — try a different term or add it as a custom food.</div>}
           {!searching && results.map((item, i) => {
-            const f = chosen(item);
-            const open = sel === item;
+            const f = chosen(item), open = sel === item;
             return (
               <div key={i}>
                 <button onClick={() => { setSel(open ? null : item); setUseServing(false); setQty("1"); }} style={foodRow}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 14, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.per100.name}</div>
-                    <div style={{ fontSize: 11, color: C.faint, fontFamily: FONT_MONO }}>
-                      {f.kcal} kcal · P{f.p} C{f.c} Fib{f.fib} F{f.f} / {f.unit}
-                    </div>
+                    <div style={{ fontSize: 11, color: C.faint, fontFamily: FONT_MONO }}>{f.kcal} kcal · P{f.p} C{f.c} Fib{f.fib} F{f.f} / {f.unit}</div>
                   </div>
                   <Plus size={16} color={C.teal} />
                 </button>
@@ -90,15 +97,12 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
                   <div style={{ padding: "4px 10px 12px" }}>
                     {item.serving && (
                       <div style={{ marginBottom: 8 }}>
-                        <Toggle value={useServing ? "serving" : "100g"} onChange={(v) => setUseServing(v === "serving")}
-                          options={[["100g", "per 100 g"], ["serving", item.serving.unit]]} />
+                        <Toggle value={useServing ? "serving" : "100g"} onChange={(v) => setUseServing(v === "serving")} options={[["100g", "per 100 g"], ["serving", item.serving.unit]]} />
                       </div>
                     )}
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input type="number" value={qty} min="0" step="0.5" onChange={(e) => setQty(e.target.value)} style={{ ...input, width: 70, textAlign: "center" }} />
-                      <span style={{ fontSize: 12, color: C.muted, flex: 1 }}>
-                        × {f.unit} = <b style={{ color: C.text, fontFamily: FONT_MONO }}>{round(f.kcal * (+qty || 0))}</b> kcal
-                      </span>
+                      <input type="number" inputMode="decimal" value={qty} min="0" step="0.5" onChange={(e) => setQty(e.target.value)} style={{ ...input, width: 70, textAlign: "center" }} />
+                      <span style={{ fontSize: 12, color: C.muted, flex: 1 }}>× {f.unit} = <b style={{ color: C.text, fontFamily: FONT_MONO }}>{round(f.kcal * (+qty || 0))}</b> kcal</span>
                       <button onClick={() => commit(f, +qty || 0)} style={btnPrimary}>Add</button>
                     </div>
                   </div>
@@ -106,7 +110,7 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
               </div>
             );
           })}
-          <div style={{ padding: "6px 10px", fontSize: 10, color: C.faint }}>Food data from Open Food Facts</div>
+          <div style={{ padding: "6px 10px", fontSize: 10, color: C.faint }}>Typed search: USDA FoodData Central · Barcodes: Open Food Facts</div>
         </Card>
       )}
 
