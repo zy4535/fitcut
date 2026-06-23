@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { X, Plus, Search, Camera } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_MONO, Card, Stat, Mini, Toggle, input, btnPrimary, btnGhost, foodRow, iconBtn } from "./ui.jsx";
 import { round, r1, todayStr } from "../lib/calc.js";
-import { searchFoods, lookupBarcode } from "../lib/foods.js";
+import { searchFoods, lookupBarcode, usdaPortions, gramsToServing } from "../lib/foods.js";
 import Scanner from "./Scanner.jsx";
 
 export default function Food({ todayFood, targets, burned, addFood, del }) {
@@ -10,9 +10,11 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [sel, setSel] = useState(null);          // selected { per100, serving }
-  const [mode, setMode] = useState("grams");     // "serving" | "grams"
-  const [amount, setAmount] = useState("100");   // servings count, or grams
+  const [sel, setSel] = useState(null);          // selected { per100, servings }
+  const [units, setUnits] = useState([]);        // [{id,label,kind,s?}]
+  const [unitId, setUnitId] = useState("g");
+  const [amount, setAmount] = useState("100");
+  const [loadingUnits, setLoadingUnits] = useState(false);
   const [custom, setCustom] = useState(false);
   const [cf, setCf] = useState({ name: "", unit: "serving", kcal: "", p: "", c: "", f: "", fib: "" });
   const [scanning, setScanning] = useState(false);
@@ -32,29 +34,49 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
   const left = targets ? targets.budget + round(burned) - round(eaten) : null;
   const bulk = targets?.mode === "bulk";
 
-  const pick = (item) => {
+  const buildUnits = (item) => [
+    { id: "g", label: "Grams", kind: "grams" },
+    ...(item.servings || []).map((s, i) => ({ id: "s" + i, label: s.unit, kind: "serving", s })),
+  ];
+
+  const pick = async (item) => {
     if (sel === item) { setSel(null); return; }
     setSel(item);
-    if (item.serving) { setMode("serving"); setAmount("1"); }
-    else { setMode("grams"); setAmount("100"); }
+    const base = buildUnits(item);
+    setUnits(base);
+    const firstServing = base.find((u) => u.kind === "serving");
+    setUnitId(firstServing ? firstServing.id : "g");
+    setAmount(firstServing ? "1" : "100");
+    // pull real portions (e.g. "1 large egg") for USDA foods
+    if (item.per100.fdcId) {
+      setLoadingUnits(true);
+      const ports = await usdaPortions(item.per100.fdcId);
+      setLoadingUnits(false);
+      if (ports.length) {
+        const extra = ports.map((p, i) => ({ id: "p" + i, label: p.label, kind: "serving", s: gramsToServing(item.per100, p.grams, p.label) }));
+        const merged = [base[0], ...extra, ...base.slice(1)];
+        setUnits(merged);
+        setUnitId(extra[0].id); setAmount("1");
+      }
+    }
   };
 
-  // live preview kcal for the open panel
+  const unit = units.find((u) => u.id === unitId) || units[0];
+  const perUnit = (item) => (unit && unit.kind === "serving" ? unit.s : item.per100);
   const previewKcal = (item) => {
     const a = +amount || 0;
-    return mode === "grams" ? round(item.per100.kcal * a / 100) : round((item.serving?.kcal ?? 0) * a);
+    return unit && unit.kind === "grams" ? round(item.per100.kcal * a / 100) : round((perUnit(item).kcal || 0) * a);
   };
 
   const commit = (item) => {
     const a = +amount || 0;
     if (a <= 0) return;
     let entry;
-    if (mode === "grams") {
+    if (unit && unit.kind === "grams") {
       const k = a / 100;
-      entry = { unit: `${a} g`, qty: 1, kcal: round(item.per100.kcal * k), p: r1(item.per100.p * k),
-        c: r1(item.per100.c * k), f: r1(item.per100.f * k), fib: r1(item.per100.fib * k) };
+      entry = { unit: `${a} g`, qty: 1, kcal: round(item.per100.kcal * k), p: r1(item.per100.p * k), c: r1(item.per100.c * k), f: r1(item.per100.f * k), fib: r1(item.per100.fib * k) };
     } else {
-      const s = item.serving;
+      const s = unit.s;
       entry = { unit: s.unit, qty: a, kcal: s.kcal, p: s.p, c: s.c, f: s.f, fib: s.fib };
     }
     addFood({ date: todayStr(), meal, name: item.per100.name, ...entry });
@@ -119,14 +141,15 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
                 {open && (
                   <div style={{ padding: "4px 10px 12px" }}>
                     <div style={{ marginBottom: 8 }}>
-                      <Toggle value={mode} onChange={setMode}
-                        options={item.serving ? [["serving", item.serving.unit], ["grams", "Grams"]] : [["grams", "Grams"]]} />
+                      <span style={{ fontSize: 11, color: C.muted, display: "block", marginBottom: 4 }}>Measure {loadingUnits && "· loading portions…"}</span>
+                      <select value={unitId} onChange={(e) => { setUnitId(e.target.value); const u = units.find((x) => x.id === e.target.value); setAmount(u && u.kind === "grams" ? "100" : "1"); }} style={input}>
+                        {units.map((u) => <option key={u.id} value={u.id}>{u.kind === "grams" ? "Grams" : u.label}</option>)}
+                      </select>
                     </div>
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input type="number" inputMode="decimal" value={amount} min="0" step={mode === "grams" ? "10" : "0.5"}
-                        onChange={(e) => setAmount(e.target.value)} style={{ ...input, width: 80, textAlign: "center" }} />
+                      <input type="number" inputMode="decimal" value={amount} min="0" step={unit && unit.kind === "grams" ? "10" : "0.5"} onChange={(e) => setAmount(e.target.value)} style={{ ...input, width: 80, textAlign: "center" }} />
                       <span style={{ fontSize: 12, color: C.muted, flex: 1 }}>
-                        {mode === "grams" ? "grams" : `× ${item.serving.unit}`} = <b style={{ color: C.text, fontFamily: FONT_MONO }}>{previewKcal(item)}</b> kcal
+                        {unit && unit.kind === "grams" ? "grams" : `× ${unit ? unit.label : ""}`} = <b style={{ color: C.text, fontFamily: FONT_MONO }}>{previewKcal(item)}</b> kcal
                       </span>
                       <button onClick={() => commit(item)} style={btnPrimary}>Add</button>
                     </div>
@@ -143,7 +166,7 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
 
       {custom && (
         <Card>
-          <div style={{ fontSize: 11, color: C.faint, marginBottom: 8, lineHeight: 1.4 }}>Enter the macros for one serving (or for a known amount), then log it.</div>
+          <div style={{ fontSize: 11, color: C.faint, marginBottom: 8, lineHeight: 1.4 }}>Enter the macros for one serving (e.g. "1 egg"), then log it.</div>
           <input placeholder="Name" value={cf.name} onChange={(e) => setCf({ ...cf, name: e.target.value })} style={{ ...input, marginBottom: 8 }} />
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
             <input placeholder="Unit (1 egg, 30 g…)" value={cf.unit} onChange={(e) => setCf({ ...cf, unit: e.target.value })} style={input} />
@@ -157,8 +180,7 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
           </div>
           <button onClick={() => {
             if (!cf.name || !cf.kcal) return;
-            addFood({ date: todayStr(), meal, name: cf.name, unit: cf.unit || "serving", qty: 1,
-              kcal: +cf.kcal, p: +cf.p || 0, c: +cf.c || 0, f: +cf.f || 0, fib: +cf.fib || 0 });
+            addFood({ date: todayStr(), meal, name: cf.name, unit: cf.unit || "serving", qty: 1, kcal: +cf.kcal, p: +cf.p || 0, c: +cf.c || 0, f: +cf.f || 0, fib: +cf.fib || 0 });
             setCf({ name: "", unit: "serving", kcal: "", p: "", c: "", f: "", fib: "" }); setCustom(false);
           }} style={btnPrimary}>Add to log</button>
         </Card>

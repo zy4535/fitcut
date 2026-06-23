@@ -25,14 +25,29 @@ let _tz = null;                                  // null = follow the device
 export function setTimezone(tz) { _tz = tz || null; }
 export const todayStr = () => localDateInTz(_tz);
 export const deviceTimezone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } };
-const FALLBACK_TZ = ["America/Los_Angeles", "America/Denver", "America/Chicago", "America/New_York",
-  "America/Sao_Paulo", "Europe/London", "Europe/Paris", "Europe/Moscow", "Africa/Cairo",
-  "Asia/Dubai", "Asia/Kolkata", "Asia/Bangkok", "Asia/Ho_Chi_Minh", "Asia/Shanghai",
-  "Asia/Tokyo", "Asia/Seoul", "Australia/Sydney", "Pacific/Auckland", "UTC"];
-export const TIMEZONES = (() => {
-  try { if (typeof Intl.supportedValuesOf === "function") return Intl.supportedValuesOf("timeZone"); } catch (e) {}
-  return FALLBACK_TZ;
-})();
+export const COMMON_TIMEZONES = [
+  { label: "Pacific Time (US & Canada)", tz: "America/Los_Angeles" },
+  { label: "Mountain Time (US & Canada)", tz: "America/Denver" },
+  { label: "Central Time (US & Canada)", tz: "America/Chicago" },
+  { label: "Eastern Time (US & Canada)", tz: "America/New_York" },
+  { label: "Alaska Time", tz: "America/Anchorage" },
+  { label: "Hawaii Time", tz: "Pacific/Honolulu" },
+  { label: "Mexico City", tz: "America/Mexico_City" },
+  { label: "Brazil (São Paulo)", tz: "America/Sao_Paulo" },
+  { label: "UTC", tz: "UTC" },
+  { label: "UK / Ireland (London)", tz: "Europe/London" },
+  { label: "Central Europe (Paris, Berlin)", tz: "Europe/Paris" },
+  { label: "Eastern Europe (Athens, Cairo)", tz: "Europe/Athens" },
+  { label: "India (Kolkata)", tz: "Asia/Kolkata" },
+  { label: "Vietnam / Thailand (UTC+7)", tz: "Asia/Ho_Chi_Minh" },
+  { label: "China (Shanghai)", tz: "Asia/Shanghai" },
+  { label: "Singapore / Philippines", tz: "Asia/Singapore" },
+  { label: "Japan (Tokyo)", tz: "Asia/Tokyo" },
+  { label: "Korea (Seoul)", tz: "Asia/Seoul" },
+  { label: "Australia West (Perth)", tz: "Australia/Perth" },
+  { label: "Australia East (Sydney)", tz: "Australia/Sydney" },
+  { label: "New Zealand (Auckland)", tz: "Pacific/Auckland" },
+];
 export const round = (n) => Math.round(n);
 export const r1 = (n) => Math.round(n * 10) / 10;
 

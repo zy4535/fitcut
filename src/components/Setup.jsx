@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { C, FONT_DISPLAY, Card, Stat, Field, Label, Toggle, input, btnPrimary, btnGhost } from "./ui.jsx";
-import { ACTIVITY, deriveTargets, TIMEZONES, deviceTimezone } from "../lib/calc.js";
+import { ACTIVITY, deriveTargets, COMMON_TIMEZONES, deviceTimezone } from "../lib/calc.js";
 
 export default function Setup({ profile, save }) {
   const [f, setF] = useState(profile ?? {
@@ -58,7 +58,10 @@ export default function Setup({ profile, save }) {
           <Label>Time zone (when your day resets)</Label>
           <select value={f.timezone || ""} onChange={(e) => set("timezone", e.target.value)} style={input}>
             <option value="">Automatic (follow this device)</option>
-            {TIMEZONES.map((z) => <option key={z} value={z}>{z.replace(/_/g, " ")}</option>)}
+            {(f.timezone && !COMMON_TIMEZONES.some((o) => o.tz === f.timezone)
+              ? [{ label: f.timezone.replace(/_/g, " "), tz: f.timezone }, ...COMMON_TIMEZONES]
+              : COMMON_TIMEZONES
+            ).map((o) => <option key={o.tz} value={o.tz}>{o.label}</option>)}
           </select>
         </div>
       </Card>
