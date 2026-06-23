@@ -1,29 +1,33 @@
-import React, { useEffect, useState } from "react";
-import { X, Plus, Search, Camera } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { X, Plus, Search, Camera, Zap, Image as ImageIcon, RotateCcw, Star } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_MONO, Card, Stat, Mini, Toggle, input, btnPrimary, btnGhost, foodRow, iconBtn } from "./ui.jsx";
 import { round, r1, todayStr } from "../lib/calc.js";
 import { searchFoods, lookupBarcode, usdaPortions, gramsToServing } from "../lib/foods.js";
 import Scanner from "./Scanner.jsx";
+import PhotoEstimate from "./PhotoEstimate.jsx";
 
-export default function Food({ todayFood, targets, burned, addFood, del }) {
+export default function Food({ todayFood, recentFoods = [], targets, burned, addFood, del }) {
   const [meal, setMeal] = useState("meal");
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [sel, setSel] = useState(null);          // selected { per100, servings }
-  const [units, setUnits] = useState([]);        // [{id,label,kind,s?}]
+  const [sel, setSel] = useState(null);
+  const [units, setUnits] = useState([]);
   const [unitId, setUnitId] = useState("g");
   const [amount, setAmount] = useState("100");
   const [loadingUnits, setLoadingUnits] = useState(false);
-  const [custom, setCustom] = useState(false);
-  const [cf, setCf] = useState({ name: "", unit: "serving", kcal: "", p: "", c: "", f: "", fib: "" });
   const [scanning, setScanning] = useState(false);
+  const [photo, setPhoto] = useState(false);
   const [scanMsg, setScanMsg] = useState(null);
+  const [quick, setQuick] = useState(false);
+  const [qa, setQa] = useState({ name: "", kcal: "", p: "" });
+  const [lastAdded, setLastAdded] = useState(null);
+  const undoTimer = useRef(null);
 
   useEffect(() => {
     if (!q.trim()) { setResults([]); return; }
     setSearching(true); setSel(null);
-    const t = setTimeout(async () => { const r = await searchFoods(q); setResults(r); setSearching(false); }, 400);
+    const t = setTimeout(async () => { const r = await searchFoods(q); setResults(r.slice(0, 8)); setSearching(false); }, 400);
     return () => clearTimeout(t);
   }, [q]);
 
@@ -34,53 +38,52 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
   const left = targets ? targets.budget + round(burned) - round(eaten) : null;
   const bulk = targets?.mode === "bulk";
 
+  // central add: stamps date + meal, tracks last add for one-tap undo
+  const log = async (entry) => {
+    const saved = await addFood({ date: todayStr(), meal, ...entry });
+    setSel(null); setQ(""); setResults([]); setScanMsg(null);
+    setLastAdded(saved);
+    clearTimeout(undoTimer.current);
+    undoTimer.current = setTimeout(() => setLastAdded(null), 6000);
+  };
+  const undo = async () => { if (lastAdded) { await del(lastAdded.id); setLastAdded(null); } };
+
   const buildUnits = (item) => [
     { id: "g", label: "Grams", kind: "grams" },
     ...(item.servings || []).map((s, i) => ({ id: "s" + i, label: s.unit, kind: "serving", s })),
   ];
-
   const pick = async (item) => {
     if (sel === item) { setSel(null); return; }
     setSel(item);
     const base = buildUnits(item);
     setUnits(base);
-    const firstServing = base.find((u) => u.kind === "serving");
-    setUnitId(firstServing ? firstServing.id : "g");
-    setAmount(firstServing ? "1" : "100");
-    // pull real portions (e.g. "1 large egg") for USDA foods
+    const fs = base.find((u) => u.kind === "serving");
+    setUnitId(fs ? fs.id : "g"); setAmount(fs ? "1" : "100");
     if (item.per100.fdcId) {
       setLoadingUnits(true);
       const ports = await usdaPortions(item.per100.fdcId);
       setLoadingUnits(false);
       if (ports.length) {
         const extra = ports.map((p, i) => ({ id: "p" + i, label: p.label, kind: "serving", s: gramsToServing(item.per100, p.grams, p.label) }));
-        const merged = [base[0], ...extra, ...base.slice(1)];
-        setUnits(merged);
+        setUnits([base[0], ...extra, ...base.slice(1)]);
         setUnitId(extra[0].id); setAmount("1");
       }
     }
   };
-
   const unit = units.find((u) => u.id === unitId) || units[0];
-  const perUnit = (item) => (unit && unit.kind === "serving" ? unit.s : item.per100);
   const previewKcal = (item) => {
     const a = +amount || 0;
-    return unit && unit.kind === "grams" ? round(item.per100.kcal * a / 100) : round((perUnit(item).kcal || 0) * a);
+    return unit && unit.kind === "grams" ? round(item.per100.kcal * a / 100) : round(((unit && unit.s && unit.s.kcal) || 0) * a);
   };
-
-  const commit = (item) => {
-    const a = +amount || 0;
-    if (a <= 0) return;
-    let entry;
+  const addFromEditor = (item) => {
+    const a = +amount || 0; if (a <= 0) return;
     if (unit && unit.kind === "grams") {
       const k = a / 100;
-      entry = { unit: `${a} g`, qty: 1, kcal: round(item.per100.kcal * k), p: r1(item.per100.p * k), c: r1(item.per100.c * k), f: r1(item.per100.f * k), fib: r1(item.per100.fib * k) };
+      log({ name: item.per100.name, unit: `${a} g`, qty: 1, kcal: round(item.per100.kcal * k), p: r1(item.per100.p * k), c: r1(item.per100.c * k), f: r1(item.per100.f * k), fib: r1(item.per100.fib * k) });
     } else {
       const s = unit.s;
-      entry = { unit: s.unit, qty: a, kcal: s.kcal, p: s.p, c: s.c, f: s.f, fib: s.fib };
+      log({ name: item.per100.name, unit: s.unit, qty: a, kcal: s.kcal, p: s.p, c: s.c, f: s.f, fib: s.fib });
     }
-    addFood({ date: todayStr(), meal, name: item.per100.name, ...entry });
-    setSel(null); setQ(""); setResults([]); setScanMsg(null);
   };
 
   const onBarcode = async (code) => {
@@ -96,6 +99,7 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {scanning && <Scanner onResult={onBarcode} onClose={() => setScanning(false)} />}
+      {photo && <PhotoEstimate meal={meal} onAdd={log} onClose={() => setPhoto(false)} />}
 
       <Card>
         <div style={{ display: "flex", gap: 10 }}>
@@ -111,6 +115,24 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
 
       <Toggle value={meal} onChange={setMeal} options={[["meal", "Full meal"], ["snack", "Snack"]]} />
 
+      {/* quick actions */}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => setPhoto(true)} style={actionBtn}><Camera size={16} /> Photo estimate</button>
+        <button onClick={() => setQuick((v) => !v)} style={actionBtn}><Zap size={16} /> Quick add</button>
+      </div>
+
+      {quick && (
+        <Card>
+          <input placeholder="Name (optional)" value={qa.name} onChange={(e) => setQa({ ...qa, name: e.target.value })} style={{ ...input, marginBottom: 8 }} />
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input type="number" inputMode="numeric" placeholder="Calories" value={qa.kcal} onChange={(e) => setQa({ ...qa, kcal: e.target.value })} style={input} />
+            <input type="number" inputMode="numeric" placeholder="Protein (g)" value={qa.p} onChange={(e) => setQa({ ...qa, p: e.target.value })} style={input} />
+          </div>
+          <button onClick={() => { if (!qa.kcal) return; log({ name: qa.name || "Quick add", unit: "entry", qty: 1, kcal: +qa.kcal, p: +qa.p || 0, c: 0, f: 0, fib: 0 }); setQa({ name: "", kcal: "", p: "" }); setQuick(false); }} style={btnPrimary}>Add</button>
+        </Card>
+      )}
+
+      {/* search */}
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ position: "relative", flex: 1 }}>
           <Search size={15} color={C.faint} style={{ position: "absolute", left: 12, top: 13 }} />
@@ -118,15 +140,41 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
         </div>
         <button onClick={() => { setScanMsg(null); setScanning(true); }} aria-label="Scan barcode"
           style={{ width: 46, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 10, color: C.teal, cursor: "pointer" }}>
-          <Camera size={18} />
+          <ImageIcon size={18} />
         </button>
       </div>
       {scanMsg && <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>{scanMsg}</div>}
 
-      {!custom && q.trim() !== "" && (
+      {lastAdded && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 10, background: "rgba(88,201,122,0.12)", border: "1px solid rgba(88,201,122,0.3)" }}>
+          <span style={{ fontSize: 12, color: C.good }}>Added {lastAdded.name}</span>
+          <button onClick={undo} style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: C.teal, fontSize: 12, fontWeight: 600, cursor: "pointer" }}><RotateCcw size={13} /> Undo</button>
+        </div>
+      )}
+
+      {/* recents — one tap to re-log */}
+      {q.trim() === "" && recentFoods.length > 0 && (
+        <Card pad={6}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px 8px", color: C.muted }}>
+            <Star size={13} /><span style={{ fontFamily: FONT_DISPLAY, fontWeight: 600, fontSize: 13 }}>Recent</span>
+          </div>
+          {recentFoods.map((rf, i) => (
+            <button key={i} onClick={() => log({ name: rf.name, unit: rf.unit, qty: rf.qty, kcal: rf.kcal, p: rf.p, c: rf.c, f: rf.f, fib: rf.fib })} style={foodRow}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rf.name}</div>
+                <div style={{ fontSize: 11, color: C.faint, fontFamily: FONT_MONO }}>{rf.qty === 1 ? rf.unit : `${rf.qty} × ${rf.unit}`} · {round(rf.kcal * rf.qty)} kcal</div>
+              </div>
+              <Plus size={16} color={C.teal} />
+            </button>
+          ))}
+        </Card>
+      )}
+
+      {/* search results */}
+      {q.trim() !== "" && (
         <Card pad={6}>
           {searching && <div style={{ padding: 14, fontSize: 12, color: C.muted }}>Searching…</div>}
-          {!searching && results.length === 0 && <div style={{ padding: 14, fontSize: 12, color: C.muted }}>No matches — try a different term or add it as a custom food.</div>}
+          {!searching && results.length === 0 && <div style={{ padding: 14, fontSize: 12, color: C.muted }}>No matches — try a different term, Quick add, or a photo.</div>}
           {!searching && results.map((item, i) => {
             const open = sel === item;
             return (
@@ -134,7 +182,7 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
                 <button onClick={() => pick(item)} style={foodRow}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 14, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.per100.name}</div>
-                    <div style={{ fontSize: 11, color: C.faint, fontFamily: FONT_MONO }}>{item.per100.kcal} kcal · P{item.per100.p} C{item.per100.c} Fib{item.per100.fib} F{item.per100.f} / 100 g</div>
+                    <div style={{ fontSize: 11, color: C.faint, fontFamily: FONT_MONO }}>{item.per100.kcal} kcal / 100 g · P{item.per100.p} C{item.per100.c} F{item.per100.f}</div>
                   </div>
                   <Plus size={16} color={C.teal} />
                 </button>
@@ -148,41 +196,15 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
                     </div>
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <input type="number" inputMode="decimal" value={amount} min="0" step={unit && unit.kind === "grams" ? "10" : "0.5"} onChange={(e) => setAmount(e.target.value)} style={{ ...input, width: 80, textAlign: "center" }} />
-                      <span style={{ fontSize: 12, color: C.muted, flex: 1 }}>
-                        {unit && unit.kind === "grams" ? "grams" : `× ${unit ? unit.label : ""}`} = <b style={{ color: C.text, fontFamily: FONT_MONO }}>{previewKcal(item)}</b> kcal
-                      </span>
-                      <button onClick={() => commit(item)} style={btnPrimary}>Add</button>
+                      <span style={{ fontSize: 12, color: C.muted, flex: 1 }}>{unit && unit.kind === "grams" ? "grams" : `× ${unit ? unit.label : ""}`} = <b style={{ color: C.text, fontFamily: FONT_MONO }}>{previewKcal(item)}</b> kcal</span>
+                      <button onClick={() => addFromEditor(item)} style={btnPrimary}>Add</button>
                     </div>
                   </div>
                 )}
               </div>
             );
           })}
-          <div style={{ padding: "6px 10px", fontSize: 10, color: C.faint }}>Typed search: USDA FoodData Central · Barcodes: Open Food Facts</div>
-        </Card>
-      )}
-
-      <button onClick={() => setCustom((v) => !v)} style={btnGhost}>{custom ? "Cancel custom food" : "+ Add custom food"}</button>
-
-      {custom && (
-        <Card>
-          <div style={{ fontSize: 11, color: C.faint, marginBottom: 8, lineHeight: 1.4 }}>Enter the macros for one serving (e.g. "1 egg"), then log it.</div>
-          <input placeholder="Name" value={cf.name} onChange={(e) => setCf({ ...cf, name: e.target.value })} style={{ ...input, marginBottom: 8 }} />
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <input placeholder="Unit (1 egg, 30 g…)" value={cf.unit} onChange={(e) => setCf({ ...cf, unit: e.target.value })} style={input} />
-            <input placeholder="kcal" type="number" value={cf.kcal} onChange={(e) => setCf({ ...cf, kcal: e.target.value })} style={input} />
-          </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <input placeholder="Protein" type="number" value={cf.p} onChange={(e) => setCf({ ...cf, p: e.target.value })} style={input} />
-            <input placeholder="Carbs" type="number" value={cf.c} onChange={(e) => setCf({ ...cf, c: e.target.value })} style={input} />
-            <input placeholder="Fiber" type="number" value={cf.fib} onChange={(e) => setCf({ ...cf, fib: e.target.value })} style={input} />
-            <input placeholder="Fat" type="number" value={cf.f} onChange={(e) => setCf({ ...cf, f: e.target.value })} style={input} />
-          </div>
-          <button onClick={() => {
-            if (!cf.name || !cf.kcal) return;
-            addFood({ date: todayStr(), meal, name: cf.name, unit: cf.unit || "serving", qty: 1, kcal: +cf.kcal, p: +cf.p || 0, c: +cf.c || 0, f: +cf.f || 0, fib: +cf.fib || 0 });
-            setCf({ name: "", unit: "serving", kcal: "", p: "", c: "", f: "", fib: "" }); setCustom(false);
-          }} style={btnPrimary}>Add to log</button>
+          {!searching && results.length > 0 && <div style={{ padding: "6px 10px", fontSize: 10, color: C.faint }}>Tap a food, pick a measure, Add. Data: USDA FoodData Central.</div>}
         </Card>
       )}
 
@@ -214,3 +236,5 @@ function LogGroup({ title, items, del }) {
     </Card>
   );
 }
+
+const actionBtn = { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "11px 0", background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" };

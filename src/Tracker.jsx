@@ -17,15 +17,16 @@ export default function Tracker({ session }) {
   const [weighIns, setWeighIns] = useState([]);
   const [food, setFood] = useState([]);
   const [cardio, setCardio] = useState([]);
+  const [recentFoods, setRecentFoods] = useState([]);
 
   setTimezone(profile?.timezone || null);   // day resets in the user's chosen zone
   const today = todayStr();
 
   const reload = useCallback(async () => {
-    const [p, w, fl, cl] = await Promise.all([
-      db.fetchProfile(uid), db.fetchWeighIns(uid), db.fetchFood(uid, today), db.fetchCardio(uid, today),
+    const [p, w, fl, cl, rf] = await Promise.all([
+      db.fetchProfile(uid), db.fetchWeighIns(uid), db.fetchFood(uid, today), db.fetchCardio(uid, today), db.fetchRecentFoods(uid),
     ]);
-    setProfile(p); setWeighIns(w); setFood(fl); setCardio(cl);
+    setProfile(p); setWeighIns(w); setFood(fl); setCardio(cl); setRecentFoods(rf);
   }, [uid, today]);
 
   useEffect(() => { reload().finally(() => setLoaded(true)); }, [reload]);
@@ -50,7 +51,12 @@ export default function Tracker({ session }) {
 
   // handlers
   const onSaveProfile = async (p) => setProfile(await db.saveProfile(uid, p));
-  const onAddFood = async (e) => { const saved = await db.addFood(uid, e); setFood((l) => [...l, saved]); };
+  const onAddFood = async (e) => {
+    const saved = await db.addFood(uid, e);
+    setFood((l) => [...l, saved]);
+    db.fetchRecentFoods(uid).then(setRecentFoods).catch(() => {});
+    return saved;
+  };
   const onDelFood = async (id) => { setFood((l) => l.filter((x) => x.id !== id)); await db.deleteFood(id); };
   const onAddCardio = async (e) => { const saved = await db.addCardio(uid, e); setCardio((l) => [...l, saved]); };
   const onDelCardio = async (id) => { setCardio((l) => l.filter((x) => x.id !== id)); await db.deleteCardio(id); };
@@ -78,7 +84,7 @@ export default function Tracker({ session }) {
 
         <main style={scroll}>
           {tab === "today" && <Today {...{ profile, targets, eaten, burned, proteinEaten, carbsEaten, fatEaten, fiberEaten, setTab }} />}
-          {tab === "food" && <Food {...{ todayFood: food, targets, burned, addFood: onAddFood, del: onDelFood }} />}
+          {tab === "food" && <Food {...{ todayFood: food, recentFoods, targets, burned, addFood: onAddFood, del: onDelFood }} />}
           {tab === "cardio" && <Cardio {...{ weightLb: latestWeight, todayCardio: cardio, addCardio: onAddCardio, del: onDelCardio }} />}
           {tab === "weight" && <Weight {...{ weighIns, profile, addWeigh: onAddWeigh }} />}
           {tab === "setup" && <Setup {...{ profile, save: onSaveProfile }} />}

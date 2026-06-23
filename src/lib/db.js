@@ -79,3 +79,18 @@ export async function deleteCardio(id) {
   const { error } = await supabase.from("cardio_log").delete().eq("id", id);
   if (error) throw error;
 }
+
+export async function fetchRecentFoods(uid, limit = 8) {
+  const { data, error } = await supabase.from("food_log").select("*")
+    .eq("user_id", uid).order("created_at", { ascending: false }).limit(80);
+  if (error) throw error;
+  const seen = new Set(), out = [];
+  for (const r of data || []) {
+    const key = (r.name || "") + "|" + (r.unit || "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(foodOut(r));
+    if (out.length >= limit) break;
+  }
+  return out;
+}
