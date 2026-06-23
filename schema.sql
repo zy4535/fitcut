@@ -13,6 +13,7 @@ create table if not exists public.profiles (
   goal_weight    numeric,
   goal_date      date,
   override_safety boolean default false,
+  timezone       text,
   updated_at     timestamptz default now()
 );
 

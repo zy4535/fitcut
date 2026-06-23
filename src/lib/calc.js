@@ -14,7 +14,25 @@ export const CARDIO_METS = {
 
 export const lbToKg = (lb) => lb * 0.453592;
 export const inToCm = (i) => i * 2.54;
-export const todayStr = () => new Date().toISOString().slice(0, 10);
+// Local calendar date (YYYY-MM-DD). Using UTC here would roll over to the next
+// day in the evening for western timezones and hide the current day's entries.
+function localDateInTz(tz) {
+  const opts = { year: "numeric", month: "2-digit", day: "2-digit" };
+  if (tz) opts.timeZone = tz;
+  return new Intl.DateTimeFormat("en-CA", opts).format(new Date()); // YYYY-MM-DD
+}
+let _tz = null;                                  // null = follow the device
+export function setTimezone(tz) { _tz = tz || null; }
+export const todayStr = () => localDateInTz(_tz);
+export const deviceTimezone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } };
+const FALLBACK_TZ = ["America/Los_Angeles", "America/Denver", "America/Chicago", "America/New_York",
+  "America/Sao_Paulo", "Europe/London", "Europe/Paris", "Europe/Moscow", "Africa/Cairo",
+  "Asia/Dubai", "Asia/Kolkata", "Asia/Bangkok", "Asia/Ho_Chi_Minh", "Asia/Shanghai",
+  "Asia/Tokyo", "Asia/Seoul", "Australia/Sydney", "Pacific/Auckland", "UTC"];
+export const TIMEZONES = (() => {
+  try { if (typeof Intl.supportedValuesOf === "function") return Intl.supportedValuesOf("timeZone"); } catch (e) {}
+  return FALLBACK_TZ;
+})();
 export const round = (n) => Math.round(n);
 export const r1 = (n) => Math.round(n * 10) / 10;
 

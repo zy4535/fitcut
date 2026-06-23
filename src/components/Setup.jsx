@@ -2,12 +2,12 @@ import React, { useState } from "react";
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { C, FONT_DISPLAY, Card, Stat, Field, Label, Toggle, input, btnPrimary, btnGhost } from "./ui.jsx";
-import { ACTIVITY, deriveTargets } from "../lib/calc.js";
+import { ACTIVITY, deriveTargets, TIMEZONES, deviceTimezone } from "../lib/calc.js";
 
 export default function Setup({ profile, save }) {
   const [f, setF] = useState(profile ?? {
     mode: "cut", sex: "male", age: "", heightIn: "", currentWeight: "", activity: "light",
-    goalWeight: "", goalDate: "", startWeight: "", override: false,
+    goalWeight: "", goalDate: "", startWeight: "", override: false, timezone: deviceTimezone(),
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -21,6 +21,7 @@ export default function Setup({ profile, save }) {
     try {
       await save({ mode: f.mode, sex: f.sex, age: +f.age, heightIn: +f.heightIn, currentWeight: +f.currentWeight,
         activity: f.activity, goalWeight: +f.goalWeight, goalDate: f.goalDate, override: !!f.override,
+        timezone: f.timezone || null,
         startWeight: f.startWeight ? +f.startWeight : +f.currentWeight });
     } catch (e) {
       setErr(e?.message || "Couldn’t save — check your connection and try again.");
@@ -53,6 +54,13 @@ export default function Setup({ profile, save }) {
         <select value={f.activity} onChange={(e) => set("activity", e.target.value)} style={input}>
           {ACTIVITY.map((a) => <option key={a.k} value={a.k}>{a.label}</option>)}
         </select>
+        <div style={{ marginTop: 12 }}>
+          <Label>Time zone (when your day resets)</Label>
+          <select value={f.timezone || ""} onChange={(e) => set("timezone", e.target.value)} style={input}>
+            <option value="">Automatic (follow this device)</option>
+            {TIMEZONES.map((z) => <option key={z} value={z}>{z.replace(/_/g, " ")}</option>)}
+          </select>
+        </div>
       </Card>
 
       <Card>

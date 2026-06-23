@@ -7,7 +7,7 @@ const foodOut = (r) => ({ id: r.id, date: r.date, meal: r.meal, name: r.name, un
 
 const profileOut = (r) => r && ({ mode: r.mode, sex: r.sex, age: r.age, heightIn: r.height_in,
   currentWeight: r.current_weight, startWeight: r.start_weight, activity: r.activity,
-  goalWeight: r.goal_weight, goalDate: r.goal_date, override: r.override_safety });
+  goalWeight: r.goal_weight, goalDate: r.goal_date, override: r.override_safety, timezone: r.timezone });
 
 export async function fetchProfile(uid) {
   const { data, error } = await supabase.from("profiles").select("*").eq("user_id", uid).maybeSingle();
@@ -18,7 +18,7 @@ export async function fetchProfile(uid) {
 export async function saveProfile(uid, p) {
   const row = { user_id: uid, mode: p.mode, sex: p.sex, age: p.age, height_in: p.heightIn,
     current_weight: p.currentWeight, start_weight: p.startWeight, activity: p.activity,
-    goal_weight: p.goalWeight, goal_date: p.goalDate, override_safety: !!p.override,
+    goal_weight: p.goalWeight, goal_date: p.goalDate, override_safety: !!p.override, timezone: p.timezone || null,
     updated_at: new Date().toISOString() };
   const { data, error } = await supabase.from("profiles").upsert(row).select().single();
   if (error) throw error;

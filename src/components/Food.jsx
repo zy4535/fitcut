@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { X, Plus, Search, Camera } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_MONO, Card, Stat, Mini, Toggle, input, btnPrimary, btnGhost, foodRow, iconBtn } from "./ui.jsx";
-import { round, todayStr } from "../lib/calc.js";
+import { round, r1, todayStr } from "../lib/calc.js";
 import { searchFoods, lookupBarcode } from "../lib/foods.js";
 import Scanner from "./Scanner.jsx";
 
@@ -10,9 +10,9 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [sel, setSel] = useState(null);
-  const [useServing, setUseServing] = useState(false);
-  const [qty, setQty] = useState("1");
+  const [sel, setSel] = useState(null);          // selected { per100, serving }
+  const [mode, setMode] = useState("grams");     // "serving" | "grams"
+  const [amount, setAmount] = useState("100");   // servings count, or grams
   const [custom, setCustom] = useState(false);
   const [cf, setCf] = useState({ name: "", unit: "serving", kcal: "", p: "", c: "", f: "", fib: "" });
   const [scanning, setScanning] = useState(false);
@@ -31,17 +31,40 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
   const fiber = todayFood.reduce((s, x) => s + (x.fib || 0) * x.qty, 0);
   const left = targets ? targets.budget + round(burned) - round(eaten) : null;
   const bulk = targets?.mode === "bulk";
-  const chosen = (item) => (useServing && item.serving ? item.serving : item.per100);
 
-  const commit = (food, n) => {
-    addFood({ date: todayStr(), meal, name: food.name, unit: food.unit, qty: n, kcal: food.kcal, p: food.p, c: food.c, f: food.f, fib: food.fib ?? 0 });
-    setSel(null); setQty("1"); setQ(""); setResults([]); setScanMsg(null);
+  const pick = (item) => {
+    if (sel === item) { setSel(null); return; }
+    setSel(item);
+    if (item.serving) { setMode("serving"); setAmount("1"); }
+    else { setMode("grams"); setAmount("100"); }
+  };
+
+  // live preview kcal for the open panel
+  const previewKcal = (item) => {
+    const a = +amount || 0;
+    return mode === "grams" ? round(item.per100.kcal * a / 100) : round((item.serving?.kcal ?? 0) * a);
+  };
+
+  const commit = (item) => {
+    const a = +amount || 0;
+    if (a <= 0) return;
+    let entry;
+    if (mode === "grams") {
+      const k = a / 100;
+      entry = { unit: `${a} g`, qty: 1, kcal: round(item.per100.kcal * k), p: r1(item.per100.p * k),
+        c: r1(item.per100.c * k), f: r1(item.per100.f * k), fib: r1(item.per100.fib * k) };
+    } else {
+      const s = item.serving;
+      entry = { unit: s.unit, qty: a, kcal: s.kcal, p: s.p, c: s.c, f: s.f, fib: s.fib };
+    }
+    addFood({ date: todayStr(), meal, name: item.per100.name, ...entry });
+    setSel(null); setQ(""); setResults([]); setScanMsg(null);
   };
 
   const onBarcode = async (code) => {
     setScanning(false); setScanMsg("Looking up barcode…");
     const item = await lookupBarcode(code);
-    if (item) { setQ(item.per100.name); setResults([item]); setSel(item); setUseServing(!!item.serving); setScanMsg(null); }
+    if (item) { setQ(item.per100.name); setResults([item]); pick(item); setScanMsg(null); }
     else setScanMsg(`No product found for barcode ${code}. Try typing its name, or add it as a custom food.`);
   };
 
@@ -83,27 +106,29 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
           {searching && <div style={{ padding: 14, fontSize: 12, color: C.muted }}>Searching…</div>}
           {!searching && results.length === 0 && <div style={{ padding: 14, fontSize: 12, color: C.muted }}>No matches — try a different term or add it as a custom food.</div>}
           {!searching && results.map((item, i) => {
-            const f = chosen(item), open = sel === item;
+            const open = sel === item;
             return (
               <div key={i}>
-                <button onClick={() => { setSel(open ? null : item); setUseServing(false); setQty("1"); }} style={foodRow}>
+                <button onClick={() => pick(item)} style={foodRow}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 14, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.per100.name}</div>
-                    <div style={{ fontSize: 11, color: C.faint, fontFamily: FONT_MONO }}>{f.kcal} kcal · P{f.p} C{f.c} Fib{f.fib} F{f.f} / {f.unit}</div>
+                    <div style={{ fontSize: 11, color: C.faint, fontFamily: FONT_MONO }}>{item.per100.kcal} kcal · P{item.per100.p} C{item.per100.c} Fib{item.per100.fib} F{item.per100.f} / 100 g</div>
                   </div>
                   <Plus size={16} color={C.teal} />
                 </button>
                 {open && (
                   <div style={{ padding: "4px 10px 12px" }}>
-                    {item.serving && (
-                      <div style={{ marginBottom: 8 }}>
-                        <Toggle value={useServing ? "serving" : "100g"} onChange={(v) => setUseServing(v === "serving")} options={[["100g", "per 100 g"], ["serving", item.serving.unit]]} />
-                      </div>
-                    )}
+                    <div style={{ marginBottom: 8 }}>
+                      <Toggle value={mode} onChange={setMode}
+                        options={item.serving ? [["serving", item.serving.unit], ["grams", "Grams"]] : [["grams", "Grams"]]} />
+                    </div>
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input type="number" inputMode="decimal" value={qty} min="0" step="0.5" onChange={(e) => setQty(e.target.value)} style={{ ...input, width: 70, textAlign: "center" }} />
-                      <span style={{ fontSize: 12, color: C.muted, flex: 1 }}>× {f.unit} = <b style={{ color: C.text, fontFamily: FONT_MONO }}>{round(f.kcal * (+qty || 0))}</b> kcal</span>
-                      <button onClick={() => commit(f, +qty || 0)} style={btnPrimary}>Add</button>
+                      <input type="number" inputMode="decimal" value={amount} min="0" step={mode === "grams" ? "10" : "0.5"}
+                        onChange={(e) => setAmount(e.target.value)} style={{ ...input, width: 80, textAlign: "center" }} />
+                      <span style={{ fontSize: 12, color: C.muted, flex: 1 }}>
+                        {mode === "grams" ? "grams" : `× ${item.serving.unit}`} = <b style={{ color: C.text, fontFamily: FONT_MONO }}>{previewKcal(item)}</b> kcal
+                      </span>
+                      <button onClick={() => commit(item)} style={btnPrimary}>Add</button>
                     </div>
                   </div>
                 )}
@@ -118,9 +143,10 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
 
       {custom && (
         <Card>
+          <div style={{ fontSize: 11, color: C.faint, marginBottom: 8, lineHeight: 1.4 }}>Enter the macros for one serving (or for a known amount), then log it.</div>
           <input placeholder="Name" value={cf.name} onChange={(e) => setCf({ ...cf, name: e.target.value })} style={{ ...input, marginBottom: 8 }} />
           <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <input placeholder="Unit (slice…)" value={cf.unit} onChange={(e) => setCf({ ...cf, unit: e.target.value })} style={input} />
+            <input placeholder="Unit (1 egg, 30 g…)" value={cf.unit} onChange={(e) => setCf({ ...cf, unit: e.target.value })} style={input} />
             <input placeholder="kcal" type="number" value={cf.kcal} onChange={(e) => setCf({ ...cf, kcal: e.target.value })} style={input} />
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -131,7 +157,8 @@ export default function Food({ todayFood, targets, burned, addFood, del }) {
           </div>
           <button onClick={() => {
             if (!cf.name || !cf.kcal) return;
-            commit({ name: cf.name, unit: cf.unit || "serving", kcal: +cf.kcal, p: +cf.p || 0, c: +cf.c || 0, f: +cf.f || 0, fib: +cf.fib || 0 }, 1);
+            addFood({ date: todayStr(), meal, name: cf.name, unit: cf.unit || "serving", qty: 1,
+              kcal: +cf.kcal, p: +cf.p || 0, c: +cf.c || 0, f: +cf.f || 0, fib: +cf.fib || 0 });
             setCf({ name: "", unit: "serving", kcal: "", p: "", c: "", f: "", fib: "" }); setCustom(false);
           }} style={btnPrimary}>Add to log</button>
         </Card>
@@ -156,7 +183,7 @@ function LogGroup({ title, items, del }) {
         <div key={x.id} style={{ display: "flex", alignItems: "center", padding: "6px 0", borderTop: `1px solid ${C.panel2}` }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.name}</div>
-            <div style={{ fontSize: 11, color: C.faint, fontFamily: FONT_MONO }}>{x.qty} × {x.unit}</div>
+            <div style={{ fontSize: 11, color: C.faint, fontFamily: FONT_MONO }}>{x.qty === 1 ? x.unit : `${x.qty} × ${x.unit}`}</div>
           </div>
           <span style={{ fontFamily: FONT_MONO, fontSize: 13, color: C.text, marginRight: 10 }}>{round(x.kcal * x.qty)}</span>
           <button onClick={() => del(x.id)} style={iconBtn}><X size={14} /></button>

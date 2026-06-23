@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Home, Utensils, Activity, Scale, Settings, TrendingUp, TrendingDown } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_MONO, FONT_BODY, page, shell, topbar, scroll, navbar, navBtn, Splash } from "./components/ui.jsx";
-import { deriveTargets, todayStr, round } from "./lib/calc.js";
+import { deriveTargets, todayStr, round, setTimezone } from "./lib/calc.js";
 import * as db from "./lib/db.js";
 import Today from "./components/Today.jsx";
 import Food from "./components/Food.jsx";
@@ -11,13 +11,15 @@ import Setup from "./components/Setup.jsx";
 
 export default function Tracker({ session }) {
   const uid = session.user.id;
-  const today = todayStr();
   const [tab, setTab] = useState("today");
   const [loaded, setLoaded] = useState(false);
   const [profile, setProfile] = useState(null);
   const [weighIns, setWeighIns] = useState([]);
   const [food, setFood] = useState([]);
   const [cardio, setCardio] = useState([]);
+
+  setTimezone(profile?.timezone || null);   // day resets in the user's chosen zone
+  const today = todayStr();
 
   const reload = useCallback(async () => {
     const [p, w, fl, cl] = await Promise.all([
@@ -69,7 +71,7 @@ export default function Tracker({ session }) {
           <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {targets && <ModePill mode={targets.mode} />}
             <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: C.faint }}>
-              {new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+              {new Date().toLocaleDateString(undefined, { timeZone: profile?.timezone || undefined, weekday: "short", month: "short", day: "numeric" })}
             </span>
           </span>
         </header>
