@@ -24,6 +24,20 @@ export function gramsToServing(per100, grams, label) {
     p: r1(per100.p * k), c: r1(per100.c * k), f: r1(per100.f * k), fib: r1(per100.fib * k) };
 }
 
+// USDA "Foundation" foods often expose only a 100 g measure. Eggs are the notable
+// staple this hits — other foods (apple, banana, bagel…) get real USDA portions —
+// so the built-in fallback is intentionally limited to eggs.
+const COMMON_PORTIONS = [
+  { test: (n) => /\begg\b/.test(n) && /(whole|large|grade a|fresh|raw|cooked|hard)/.test(n) && !/(noodle|plant|substitute|white|nog|roll|bread)/.test(n),
+    portions: [{ label: "1 large egg", grams: 50 }, { label: "1 medium egg", grams: 44 }, { label: "1 jumbo egg", grams: 63 }] },
+  { test: (n) => /egg white/.test(n), portions: [{ label: "1 large egg white", grams: 33 }] },
+];
+export function commonPortions(name) {
+  const n = (name || "").toLowerCase();
+  for (const c of COMMON_PORTIONS) if (c.test(n)) return c.portions;
+  return [];
+}
+
 /* ---------- USDA FoodData Central ---------- */
 const DATATYPE_RANK = { Foundation: 0, "SR Legacy": 1, "Survey (FNDDS)": 2, Branded: 3 };
 function fromUSDA(food) {
@@ -71,7 +85,8 @@ export async function usdaPortions(fdcId) {
       const mod = p.modifier && !/^\d+$/.test(String(p.modifier)) ? p.modifier : ""; // skip numeric codes
       label = [p.amount, mod || muName].filter(Boolean).join(" ");
     }
-    label = (label || `${Math.round(grams)} g`).trim();
+    label = label.trim();
+    if (!label) return null;  // drop unlabeled portions (e.g. "Quantity not specified") — they'd duplicate Grams
     return { grams: Math.round(grams), label };
   }).filter(Boolean).sort((a, b) => a.grams - b.grams);
 }

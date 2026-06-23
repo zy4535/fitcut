@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { X, Plus, Search, Camera, Zap, Image as ImageIcon, RotateCcw, Star } from "lucide-react";
 import { C, FONT_DISPLAY, FONT_MONO, Card, Stat, Mini, Toggle, input, btnPrimary, btnGhost, foodRow, iconBtn } from "./ui.jsx";
 import { round, r1, todayStr } from "../lib/calc.js";
-import { searchFoods, lookupBarcode, usdaPortions, gramsToServing } from "../lib/foods.js";
+import { searchFoods, lookupBarcode, usdaPortions, gramsToServing, commonPortions } from "../lib/foods.js";
 import Scanner from "./Scanner.jsx";
 import PhotoEstimate from "./PhotoEstimate.jsx";
 
@@ -56,25 +56,28 @@ export default function Food({ todayFood, recentFoods = [], targets, burned, add
   const pick = async (item) => {
     if (sel === item) { setSel(null); return; }
     setSel(item);
-    const base = buildUnits(item);
-    setUnits(base);
-    const fs = base.find((u) => u.kind === "serving");
-    setUnitId(fs ? fs.id : "g"); setAmount(fs ? "1" : "100");
     setPortionErr(false);
+    const commons = commonPortions(item.per100.name); // [{label, grams}]
+    // assemble: Grams + (usda portions, then common fallbacks deduped by grams) + any search serving
+    const assemble = (usda = []) => {
+      const picked = [];
+      const add = (label, grams) => { if (!picked.some((x) => Math.round(x.grams) === Math.round(grams))) picked.push({ label, grams }); };
+      usda.forEach((p) => add(p.label, p.grams));
+      commons.forEach((p) => add(p.label, p.grams));
+      const servingUnits = picked.map((p, i) => ({ id: "p" + i, label: p.label, kind: "serving", s: gramsToServing(item.per100, p.grams, p.label) }));
+      const fromSearch = (item.servings || []).map((s, i) => ({ id: "s" + i, label: s.unit, kind: "serving", s }));
+      return [{ id: "g", label: "Grams", kind: "grams" }, ...servingUnits, ...fromSearch];
+    };
+    const apply = (list) => { setUnits(list); const fs = list.find((u) => u.kind === "serving"); setUnitId(fs ? fs.id : "g"); setAmount(fs ? "1" : "100"); };
+    apply(assemble());                         // show grams + common portions immediately
     if (item.per100.fdcId) {
       setLoadingUnits(true);
       try {
         const ports = await usdaPortions(item.per100.fdcId);
-        if (ports.length) {
-          const extra = ports.map((p, i) => ({ id: "p" + i, label: p.label, kind: "serving", s: gramsToServing(item.per100, p.grams, p.label) }));
-          setUnits([base[0], ...extra, ...base.slice(1)]);
-          setUnitId(extra[0].id); setAmount("1");
-        }
+        apply(assemble(ports));                 // merge in USDA portions when they arrive
       } catch (e) {
-        setPortionErr(true);   // request failed (often USDA rate limit) — grams still works
-      } finally {
-        setLoadingUnits(false);
-      }
+        setPortionErr(commons.length === 0);    // only an error if we have no fallback either
+      } finally { setLoadingUnits(false); }
     }
   };
   const unit = units.find((u) => u.id === unitId) || units[0];
