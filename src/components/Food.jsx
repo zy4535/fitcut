@@ -16,6 +16,7 @@ export default function Food({ todayFood, recentFoods = [], targets, burned, add
   const [unitId, setUnitId] = useState("g");
   const [amount, setAmount] = useState("100");
   const [loadingUnits, setLoadingUnits] = useState(false);
+  const [portionErr, setPortionErr] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [photo, setPhoto] = useState(false);
   const [scanMsg, setScanMsg] = useState(null);
@@ -59,14 +60,20 @@ export default function Food({ todayFood, recentFoods = [], targets, burned, add
     setUnits(base);
     const fs = base.find((u) => u.kind === "serving");
     setUnitId(fs ? fs.id : "g"); setAmount(fs ? "1" : "100");
+    setPortionErr(false);
     if (item.per100.fdcId) {
       setLoadingUnits(true);
-      const ports = await usdaPortions(item.per100.fdcId);
-      setLoadingUnits(false);
-      if (ports.length) {
-        const extra = ports.map((p, i) => ({ id: "p" + i, label: p.label, kind: "serving", s: gramsToServing(item.per100, p.grams, p.label) }));
-        setUnits([base[0], ...extra, ...base.slice(1)]);
-        setUnitId(extra[0].id); setAmount("1");
+      try {
+        const ports = await usdaPortions(item.per100.fdcId);
+        if (ports.length) {
+          const extra = ports.map((p, i) => ({ id: "p" + i, label: p.label, kind: "serving", s: gramsToServing(item.per100, p.grams, p.label) }));
+          setUnits([base[0], ...extra, ...base.slice(1)]);
+          setUnitId(extra[0].id); setAmount("1");
+        }
+      } catch (e) {
+        setPortionErr(true);   // request failed (often USDA rate limit) — grams still works
+      } finally {
+        setLoadingUnits(false);
       }
     }
   };
@@ -193,6 +200,7 @@ export default function Food({ todayFood, recentFoods = [], targets, burned, add
                       <select value={unitId} onChange={(e) => { setUnitId(e.target.value); const u = units.find((x) => x.id === e.target.value); setAmount(u && u.kind === "grams" ? "100" : "1"); }} style={input}>
                         {units.map((u) => <option key={u.id} value={u.id}>{u.kind === "grams" ? "Grams" : u.label}</option>)}
                       </select>
+                      {portionErr && <div style={{ fontSize: 10, color: C.warn, marginTop: 4, lineHeight: 1.4 }}>Couldn’t load portion sizes (USDA limit). Use grams for now, or add your own free USDA key for reliable portions.</div>}
                     </div>
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <input type="number" inputMode="decimal" value={amount} min="0" step={unit && unit.kind === "grams" ? "10" : "0.5"} onChange={(e) => setAmount(e.target.value)} style={{ ...input, width: 80, textAlign: "center" }} />

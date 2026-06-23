@@ -53,23 +53,27 @@ async function searchUSDA(q) {
   return foods.map(fromUSDA).filter(Boolean);
 }
 
-// On-demand portion list for a USDA food, e.g. "1 large" (50 g), "1 cup" (243 g).
+// On-demand portion list for a USDA food, e.g. "1 egg" (50 g), "1 cup" (243 g).
+// Throws on a failed request so the UI can tell "rate-limited/failed" apart from "no portions".
 export async function usdaPortions(fdcId) {
   if (!fdcId) return [];
-  try {
-    const res = await fetch(`https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${USDA_KEY}`);
-    if (!res.ok) return [];
-    const d = await res.json();
-    return (d.foodPortions || []).map((p) => {
-      const grams = p.gramWeight;
-      if (!grams) return null;
-      let label = p.portionDescription && p.portionDescription !== "Quantity not specified"
-        ? p.portionDescription
-        : [p.amount, p.modifier, p.measureUnit && p.measureUnit.name !== "undetermined" ? p.measureUnit.name : ""].filter(Boolean).join(" ");
-      label = (label || `${Math.round(grams)} g`).trim();
-      return { grams: Math.round(grams), label };
-    }).filter(Boolean);
-  } catch (e) { return []; }
+  const res = await fetch(`https://api.nal.usda.gov/fdc/v1/food/${fdcId}?format=full&api_key=${USDA_KEY}`);
+  if (!res.ok) { const e = new Error("usda_detail_" + res.status); e.status = res.status; throw e; }
+  const d = await res.json();
+  return (d.foodPortions || []).map((p) => {
+    const grams = p.gramWeight;
+    if (!grams) return null;
+    let label = "";
+    if (p.portionDescription && p.portionDescription !== "Quantity not specified") {
+      label = p.portionDescription;
+    } else {
+      const muName = p.measureUnit && p.measureUnit.name && p.measureUnit.name !== "undetermined" ? p.measureUnit.name : "";
+      const mod = p.modifier && !/^\d+$/.test(String(p.modifier)) ? p.modifier : ""; // skip numeric codes
+      label = [p.amount, mod || muName].filter(Boolean).join(" ");
+    }
+    label = (label || `${Math.round(grams)} g`).trim();
+    return { grams: Math.round(grams), label };
+  }).filter(Boolean).sort((a, b) => a.grams - b.grams);
 }
 
 /* ---------- Open Food Facts ---------- */
